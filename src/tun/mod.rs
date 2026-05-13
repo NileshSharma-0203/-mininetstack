@@ -54,6 +54,10 @@ pub fn start_tun_interface() -> Result<(), Box<dyn std::error::Error>> {
         );
         println!("TTL: {}", ipv4_packet.ttl);
         println!("Protocol: {}", protocol_name(ipv4_packet.protocol));
+        println!(
+    "IPv4 Checksum Valid: {}",
+    Ipv4Packet::validate_checksum(packet_data)
+    );
 
         match ipv4_packet.protocol {
             1 => handle_icmp(&mut dev, &ipv4_packet, has_tun_header)?,

@@ -1,4 +1,7 @@
+use crate::checksum::compute_checksum;
 #[derive(Debug)]
+
+
 pub struct Ipv4Packet<'a> {
     pub version: u8,
     pub header_length: u8,
@@ -11,6 +14,19 @@ pub struct Ipv4Packet<'a> {
 }
 
 impl<'a> Ipv4Packet<'a> {
+    pub fn validate_checksum(data: &[u8]) -> bool {
+    if data.len() < 20 {
+        return false;
+    }
+
+    let header_length = ((data[0] & 0x0F) * 4) as usize;
+
+    if data.len() < header_length {
+        return false;
+    }
+
+    compute_checksum(&data[..header_length]) == 0
+}
     pub fn parse(data: &'a [u8]) -> Result<Self, String> {
         if data.len() < 20 {
             return Err("IPv4 packet too short".to_string());
@@ -52,4 +68,4 @@ impl<'a> Ipv4Packet<'a> {
     pub fn format_ip(ip: &[u8; 4]) -> String {
         format!("{}.{}.{}.{}", ip[0], ip[1], ip[2], ip[3])
     }
-}
+}   
