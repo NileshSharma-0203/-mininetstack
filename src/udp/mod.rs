@@ -13,22 +13,17 @@ impl<'a> UdpPacket<'a> {
             return Err("UDP packet too short".to_string());
         }
 
-        let source_port =
-            u16::from_be_bytes([data[0], data[1]]);
+        let source_port = u16::from_be_bytes([data[0], data[1]]);
+        let destination_port = u16::from_be_bytes([data[2], data[3]]);
+        let length = u16::from_be_bytes([data[4], data[5]]);
+        let checksum = u16::from_be_bytes([data[6], data[7]]);
 
-        let destination_port =
-            u16::from_be_bytes([data[2], data[3]]);
-
-        let length =
-            u16::from_be_bytes([data[4], data[5]]);
-
-        let checksum =
-            u16::from_be_bytes([data[6], data[7]]);
+        if length < 8 {
+            return Err("Invalid UDP length".to_string());
+        }
 
         if data.len() < length as usize {
-            return Err(
-                "UDP length larger than packet".to_string()
-            );
+            return Err("UDP length larger than packet".to_string());
         }
 
         let payload = &data[8..length as usize];
