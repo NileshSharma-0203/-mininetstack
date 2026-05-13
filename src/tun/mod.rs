@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 use crate::checksum::compute_checksum;
 use crate::icmp::IcmpPacket;
 use crate::ipv4::Ipv4Packet;
+use crate::udp::UdpPacket;
 
 pub fn start_tun_interface() -> Result<(), Box<dyn std::error::Error>> {
     let mut config = tun::Configuration::default();
@@ -55,10 +56,109 @@ pub fn start_tun_interface() -> Result<(), Box<dyn std::error::Error>> {
         println!("TTL: {}", ipv4_packet.ttl);
         println!("Protocol: {}", ipv4_packet.protocol);
 
-        if ipv4_packet.protocol != 1 {
-            println!("Not ICMP. Skipping.");
-            continue;
+        match ipv4_packet.protocol {
+    // ICMP
+    1 => {
+        let icmp_packet = match IcmpPacket::parse(ipv4_packet.payload) {
+            Ok(packet) => packet,
+            Err(e) => {
+                println!("ICMP Parse Error: {}", e);
+                continue;
+            }
+        };
+
+        println!("ICMP Packet");
+
+        println!(
+            "Type: {} ({})",
+            icmp_packet.icmp_type,
+            IcmpPacket::icmp_type_name(
+                icmp_packet.icmp_type
+            )
+        );
+
+        println!("Code: {}", icmp_packet.code);
+
+        println!(
+            "Checksum Valid: {}",
+            IcmpPacket::validate_checksum(
+                ipv4_packet.payload
+            )
+        );
+
+        if icmp_packet.icmp_type == 8 {
+            println!("Echo Request received.");
+
+            let reply =
+                build_icmp_echo_reply(&ipv4_packet);
+
+            if has_tun_header {
+                let mut framed_reply = Vec::new();
+
+                framed_reply.extend_from_slice(
+                    &[0x00, 0x00, 0x08, 0x00]
+                );
+
+                framed_reply.extend_from_slice(&reply);
+
+                dev.write_all(&framed_reply)?;
+            } else {
+                dev.write_all(&reply)?;
+            }
+
+            println!("Echo Reply sent.");
         }
+    }
+
+    // UDP
+    17 => {
+        let udp_packet =
+            match UdpPacket::parse(ipv4_packet.payload) {
+                Ok(packet) => packet,
+                Err(e) => {
+                    println!("UDP Parse Error: {}", e);
+                    continue;
+                }
+            };
+
+        println!("UDP Packet");
+
+        println!(
+            "Source Port: {}",
+            udp_packet.source_port
+        );
+
+        println!(
+            "Destination Port: {}",
+            udp_packet.destination_port
+        );
+
+        println!("Length: {}", udp_packet.length);
+
+        println!(
+            "Checksum: 0x{:04x}",
+            udp_packet.checksum
+        );
+
+        println!(
+            "Payload Length: {}",
+            udp_packet.payload.len()
+        );
+
+        if let Ok(text) =
+            std::str::from_utf8(udp_packet.payload)
+        {
+            println!("Payload Text: {}", text);
+        }
+    }
+
+    _ => {
+        println!(
+            "Unsupported protocol: {}",
+            ipv4_packet.protocol
+        );
+    }
+}
 
         let icmp_packet = match IcmpPacket::parse(ipv4_packet.payload) {
             Ok(packet) => packet,
