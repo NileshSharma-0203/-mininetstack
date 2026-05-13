@@ -3,6 +3,7 @@ use std::io::{Read, Write};
 use crate::checksum::compute_checksum;
 use crate::icmp::IcmpPacket;
 use crate::ipv4::Ipv4Packet;
+use crate::tcp::TcpPacket;
 use crate::udp::UdpPacket;
 
 const STACK_IP: [u8; 4] = [10, 0, 0, 2];
@@ -55,12 +56,13 @@ pub fn start_tun_interface() -> Result<(), Box<dyn std::error::Error>> {
         println!("TTL: {}", ipv4_packet.ttl);
         println!("Protocol: {}", protocol_name(ipv4_packet.protocol));
         println!(
-    "IPv4 Checksum Valid: {}",
-    Ipv4Packet::validate_checksum(packet_data)
-    );
+            "IPv4 Checksum Valid: {}",
+            Ipv4Packet::validate_checksum(packet_data)
+        );
 
         match ipv4_packet.protocol {
             1 => handle_icmp(&mut dev, &ipv4_packet, has_tun_header)?,
+            6 => handle_tcp(&ipv4_packet),
             17 => handle_udp(&mut dev, &ipv4_packet, has_tun_header)?,
             _ => println!("Unsupported protocol: {}", ipv4_packet.protocol),
         }
@@ -96,7 +98,6 @@ fn handle_icmp(
         println!("Echo Request received.");
 
         let reply = build_icmp_echo_reply(ipv4_packet);
-
         write_packet(dev, &reply, has_tun_header)?;
 
         println!("Echo Reply sent.");
@@ -133,13 +134,42 @@ fn handle_udp(
         println!("UDP Echo request received. Sending reply...");
 
         let reply = build_udp_echo_reply(ipv4_packet, &udp_packet);
-
         write_packet(dev, &reply, has_tun_header)?;
 
         println!("UDP Echo reply sent.");
     }
 
     Ok(())
+}
+
+fn handle_tcp(ipv4_packet: &Ipv4Packet) {
+    let tcp_packet = match TcpPacket::parse(ipv4_packet.payload) {
+        Ok(packet) => packet,
+        Err(e) => {
+            println!("TCP Parse Error: {}", e);
+            return;
+        }
+    };
+
+    println!("TCP Packet");
+    println!("Source Port: {}", tcp_packet.source_port);
+    println!("Destination Port: {}", tcp_packet.destination_port);
+    println!("Sequence Number: {}", tcp_packet.sequence_number);
+    println!(
+        "Acknowledgement Number: {}",
+        tcp_packet.acknowledgement_number
+    );
+    println!("Data Offset: {}", tcp_packet.data_offset);
+    println!("Window Size: {}", tcp_packet.window_size);
+    println!("Checksum: 0x{:04x}", tcp_packet.checksum);
+    println!("Urgent Pointer: {}", tcp_packet.urgent_pointer);
+
+    println!("Flags:");
+    println!("  SYN: {}", tcp_packet.syn());
+    println!("  ACK: {}", tcp_packet.ack());
+    println!("  FIN: {}", tcp_packet.fin());
+
+    println!("Payload Length: {}", tcp_packet.payload.len());
 }
 
 fn write_packet(
@@ -150,8 +180,6 @@ fn write_packet(
     if has_tun_header {
         let mut framed_packet = Vec::new();
 
-        // TUN packet information header:
-        // flags = 0x0000, protocol = 0x0800 IPv4
         framed_packet.extend_from_slice(&[0x00, 0x00, 0x08, 0x00]);
         framed_packet.extend_from_slice(packet);
 
@@ -169,7 +197,6 @@ fn build_icmp_echo_reply(ipv4_packet: &Ipv4Packet) -> Vec<u8> {
 
     let mut reply = vec![0u8; total_length];
 
-    // IPv4 header
     reply[0] = 0x45;
     reply[1] = 0x00;
     reply[2..4].copy_from_slice(&(total_length as u16).to_be_bytes());
@@ -185,7 +212,6 @@ fn build_icmp_echo_reply(ipv4_packet: &Ipv4Packet) -> Vec<u8> {
     let ipv4_checksum = compute_checksum(&reply[0..20]);
     reply[10..12].copy_from_slice(&ipv4_checksum.to_be_bytes());
 
-    // ICMP reply
     let icmp_start = 20;
 
     reply[icmp_start] = 0;
@@ -208,7 +234,6 @@ fn build_udp_echo_reply(ipv4_packet: &Ipv4Packet, udp_packet: &UdpPacket) -> Vec
 
     let mut reply = vec![0u8; total_length];
 
-    // IPv4 header
     reply[0] = 0x45;
     reply[1] = 0x00;
     reply[2..4].copy_from_slice(&(total_length as u16).to_be_bytes());
@@ -224,16 +249,12 @@ fn build_udp_echo_reply(ipv4_packet: &Ipv4Packet, udp_packet: &UdpPacket) -> Vec
     let ipv4_checksum = compute_checksum(&reply[0..20]);
     reply[10..12].copy_from_slice(&ipv4_checksum.to_be_bytes());
 
-    // UDP header
     let udp_start = 20;
 
     reply[udp_start..udp_start + 2].copy_from_slice(&udp_packet.destination_port.to_be_bytes());
     reply[udp_start + 2..udp_start + 4].copy_from_slice(&udp_packet.source_port.to_be_bytes());
     reply[udp_start + 4..udp_start + 6].copy_from_slice(&(udp_length as u16).to_be_bytes());
-
-    // UDP checksum is optional for IPv4, so we set it to 0 for now.
     reply[udp_start + 6..udp_start + 8].copy_from_slice(&0u16.to_be_bytes());
-
     reply[udp_start + 8..].copy_from_slice(udp_payload);
 
     reply

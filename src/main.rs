@@ -5,6 +5,7 @@ mod checksum;
 mod cli;
 mod tun;
 mod udp;
+mod tcp;
 
 fn main() {
     println!("MiniNetStack starting...\n");
